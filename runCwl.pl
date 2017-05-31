@@ -72,7 +72,7 @@ my $sample_data = &loadData('-data_file'=>$sample_data_file, '-assets'=>\%assets
 
 #ALIGNMENT JOBS - all samples
 #Create an output directory for each alignment job
-&createAlignDirs('-base'=>$alignment_dir, '-sample_data'=>$sample_data);
+&createAlignDirs('-base_dir'=>$base_dir, '-alignment_dir'=>$alignment_dir, '-sample_data'=>$sample_data);
 
 #Create a YAML file for each alignemt job
 &createAlignYmls('-base'=>$alignment_dir, '-sample_data'=>$sample_data, '-yml_name'=>$alignment_yml_name,
@@ -190,18 +190,27 @@ sub printLegend{
 
 sub createAlignDirs{
   my %args = @_;
-  my $alignment_dir = $args{'-base'};
+  my $base_dir = $args{'-base_dir'};
+  my $alignment_dir = $args{'-alignment_dir'};
   my $sample_data = $args{'-sample_data'};
 
   foreach my $s (sort keys %{$sample_data}){
     my $unique_label = $sample_data->{$s}->{unique_label};
-    my $dir = $alignment_dir . $unique_label;
-    my $cmd = "mkdir $dir";
-    unless (-e $dir && -d $dir){
-      print "\n$cmd";
-      system($cmd);
+    my $dir1 = $alignment_dir . $unique_label;
+    my $cmd1 = "mkdir $dir1";
+    unless (-e $dir1 && -d $dir1){
+      print "\n$cmd1";
+      system($cmd1);
     }
-    $sample_data->{$s}->{dir} = $dir;
+    $sample_data->{$s}->{dir} = $dir1;
+    
+    my $dir2 = $base_dir . "/workDir/" . $unique_label;
+    my $cmd2 = "mkdir $dir2";
+    unless (-e $dir2 && -d $dir2){
+      print "\n$cmd2";
+      system($cmd2);
+    }
+    $sample_data->{$s}->{work_dir} = $dir2;
   }
   return;
 }
@@ -335,6 +344,7 @@ sub createAlignToils{
   foreach my $s (sort keys %{$sample_data}){
     my $align_yml = $sample_data->{$s}->{yml_path}; $assets->{$align_yml} = "f";
     my $dir = $sample_data->{$s}->{dir}; $assets->{$dir} = "d";
+    my $work_dir = $sample_data->{$s}->{work_dir}; $assets->{$work_dir} = "d";
     my $align_cwl;
     if ($sample_data->{$s}->{data_type} eq 'Exome'){
       $align_cwl = $align_cwl_exome;
@@ -345,7 +355,7 @@ sub createAlignToils{
     }
     $j++;
     my $job_name = "a_toil_" . $j;
-    my $bsub_cmd = "bsub -J $job_name -g /mgtoil -o $dir/lsf.out -e $dir/lsf.err bash -c \"LSB_SUB_ADDITIONAL=\'$lsb_additional\' cwltoil --disableCaching --stats --logLevel=DEBUG --logFile=$dir/toil.log --outdir=$dir --workDir=$base_dir/workDir/$s --jobStore=$base_dir/jobStore/$s --batchSystem lsf $align_cwl $align_yml\"";
+    my $bsub_cmd = "bsub -J $job_name -g /mgtoil -o $dir/lsf.out -e $dir/lsf.err bash -c \"LSB_SUB_ADDITIONAL=\'$lsb_additional\' cwltoil --disableCaching --stats --logLevel=DEBUG --logFile=$dir/toil.log --outdir=$dir --workDir=$work_dir --jobStore=$base_dir/jobStore/$s --batchSystem lsf $align_cwl $align_yml\"";
 
     print CWLBASH $bsub_cmd . "\n";
   }
