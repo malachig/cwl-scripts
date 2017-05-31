@@ -92,27 +92,30 @@ foreach my $j (sort {$a <=> $b} keys %jobs){
     my $files = $outdir . "lsf* " . $outdir . "tmp*";
     my $rm_cmd = "rm -fr $files";
     print "\n$rm_cmd";
+    system($rm_cmd);
 
     my $toil_clean_cmd = "toil clean $jobstore";
     print "\n$toil_clean_cmd";
+    system($toil_clean_cmd);
 
     my $workdir_rm_cmd = "rm -fr $workdir";
     print "\n$workdir_rm_cmd";
+    system($workdir_rm_cmd);
 
     my $complete_file = $outdir . "COMPLETE";
     unless (-e $complete_file){
       my $complete_file_cmd = "touch $complete_file";
       print "\n$complete_file_cmd";
+      system($complete_file_cmd);
 
       my $chmod_cmd = "chmod -w $outdir";
       print "\n$chmod_cmd";
+      system($chmod_cmd);
     }
 
   }
   print "\n";
   print "$j\t$jobs{$j}{workdir}\t$overall_status\n";
-
-
 
 
 }
