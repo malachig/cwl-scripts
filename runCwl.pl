@@ -345,7 +345,7 @@ sub createAlignToils{
     }
     $j++;
     my $job_name = "a_toil_" . $j;
-    my $bsub_cmd = "bsub -J $job_name -g /mgtoil -o $dir/lsf.out -e $dir/lsf.err bash -c \"LSB_SUB_ADDITIONAL=\'$lsb_additional\' cwltoil --disableCaching --stats --logLevel=DEBUG --logFile=$dir/toil.log --outdir=$dir --workDir $base_dir/workDir --jobStore $base_dir/jobStore/$s --batchSystem lsf $align_cwl $align_yml\"";
+    my $bsub_cmd = "bsub -J $job_name -g /mgtoil -o $dir/lsf.out -e $dir/lsf.err bash -c \"LSB_SUB_ADDITIONAL=\'$lsb_additional\' cwltoil --disableCaching --stats --logLevel=DEBUG --logFile=$dir/toil.log --outdir=$dir --workDir=$base_dir/workDir/$s --jobStore=$base_dir/jobStore/$s --batchSystem lsf $align_cwl $align_yml\"";
 
     print CWLBASH $bsub_cmd . "\n";
   }
