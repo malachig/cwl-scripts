@@ -53,6 +53,7 @@ my $docm_vcf = "/gscmnt/gc2764/cad/tmooney/toil_test/arvados_trial/example_data/
 
 my $align_cwl_exome = $base_dir . "/cancer-genomics-workflow/unaligned_bam_to_bqsr/workflow.cwl"; $assets{$align_cwl_exome} = "f";
 my $align_cwl_swift = $base_dir . "/cancer-genomics-workflow/unaligned_bam_to_bqsr/workflow_no_dup_marking.cwl"; $assets{$align_cwl_swift} = "f";
+my $somatic_cwl = $base_dir . "/cancer-genomics-workflow/detect_variants/detect_variants.cwl"; $assets{$somatic_cwl} = "f";
 $assets{"$base_dir/workDir"} = "d";
 $assets{"$base_dir/jobStore"} = "d";
 
@@ -109,7 +110,9 @@ my $pair_data = &determinePairs('-sample_data'=>$sample_data);
                    '-vep_cache_dir'=>$vep_cache_dir, '-synonyms_file'=>$synonyms_file, '-docm_vcf'=>$docm_vcf);
 
 #Create a Toil command for each somatic job
-
+&createSomaticToils('-pair_data'=>$pair_data, '-lsb_additional'=>"docker(mgibio/cle)", '-assets'=>\%assets, 
+                    '-somatic_cwl'=>$somatic_cwl, '-somatic_bash_file'=>$somatic_bash_file, '-somatic_session_file'=>$somatic_session_file,
+                    '-job_group'=>$job_group);
 
 #Print out a TSV file that summarizes results labels and storage locations for results
 &printLegend('-legend_file'=>$sample_legend_file, '-sample_data'=>$sample_data);
@@ -532,7 +535,49 @@ sub createAlignToils{
   return;
 }
 
+sub createSomaticToils{
+  my %args = @_;
+  my $pair_data = $args{'-pair_data'};
+  my $lsb_additional = $args{'-lsb_additional'};
+  my $assets = $args{'-assets'};
+  my $somatic_cwl = $args{'-somatic_cwl'};
+  my $somatic_base_file = $args{'-somatic_bash_file'};
+  my $somatic_session_file = $args{'-somatic_session_file'};
+  my $job_group = $args{'-job_group'};
 
+  open(CWLBASH, ">$somatic_bash_file") || die "\n\ncould not open somatic cwl bash output file: $somatic_bash_file\n\n";
+  my $j = 0;
+  foreach my $i (sort keys %{$pair_data}){
+    my $normal_sample = $pair_data->{$i}->{normal};
+    my $tumors = $pair_data->{$i}->{tumors};
+    foreach my $tumor_sample (sort keys %{$tumors}){
+      $j++;
+      my $somatic_yml = $tumors->{$tumor_sample}->{yml_path};
+      my $dir = $tumors->{$tumor_sample}->{dir};
+      my $work_dir = $tumors->{$tumor_sample}->{work_dir};
+      my $job_name = "s_toil_" . $j;
+      my $bsub_cmd = "bsub -J $job_name -g /mgtoil -o $dir/lsf.out -e $dir/lsf.err bash -c \"LSB_SUB_ADDITIONAL=\'$lsb_additional\' cwltoil --disableCaching --stats --logLevel=DEBUG --logFile=$dir/toil.log --outdir=$dir --workDir=$work_dir --jobStore=$base_dir/jobStore/somatic/$tumor_sample --batchSystem lsf $somatic_cwl $somatic_yml\"";
 
+    print CWLBASH $bsub_cmd . "\n";
+
+    }
+  }
+  close(CWLBASH);
+
+  #Create notes for logging in with the neccessary session
+  open(SESSION, ">$somatic_session_file") || die "\n\ncould not open session file: $somatic_session_file\n\n";
+  print SESSION "LSF_DOCKER_PRESERVE_ENVIRONMENT=false bsub -q docker-interactive -a \'docker(mgibio/cle)\' -Is \$SHELL\n\n";
+  print SESSION "export LSB_SUB_ADDITIONAL=\"docker(mgibio/cle)\"\n";
+  print SESSION "export LSB_DEFAULTQUEUE=\"research-hpc\"\n";
+  print SESSION "export LSF_SERVERDIR=\"/opt/lsf9/9.1/linux2.6-glibc2.3-x86_64/etc\"\n";
+  print SESSION "export LSF_LIBDIR=\"/opt/lsf9/9.1/linux2.6-glibc2.3-x86_64/lib\"\n";
+  print SESSION "export LSF_BINDIR=\"/opt/lsf9/9.1/linux2.6-glibc2.3-x86_64/bin\"\n";
+  print SESSION "export LSF_INCLUDEDIR=\"/opt/lsf9/9.1/include\"\n";
+  print SESSION "export LSF_ENVDIR=\"/opt/lsf9/conf\"\n";
+  print SESSION "export PATH=\"/opt/lsf9/9.1/linux2.6-glibc2.3-x86_64/etc:/opt/lsf9/9.1/linux2.6-glibc2.3-x86_64/bin:\$PATH\"\n";
+  close(SESSION);
+
+  return;
+}
 
 
