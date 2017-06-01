@@ -120,7 +120,7 @@ foreach my $j (sort {$a <=> $b} keys %jobs){
       }
     }
   }
-  print "$j\t$jobs{$j}{workdir}\t$overall_status\n";
+  print "$j\t$overall_status\t$jobs{$j}{workdir}\n";
 
 
 }
