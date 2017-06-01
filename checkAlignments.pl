@@ -3,6 +3,10 @@
 use strict;
 use warnings;
 
+#Do not run if toil command is not available
+my $toil_bin = "/usr/local/bin/toil";
+die "\n\ncould not find toil: $toil_bin\n\n" unless (-e $toil_bin);
+
 #Given a list of Toil alignment jobs do the following.
 my $toil_cmd_file = "/gscmnt/gc2736/griffithlab_gms/Breast_cfDNA_Ademuyiwa/cwl_toil_runs/results/align_toil_cmds.sh";
 my %jobs;

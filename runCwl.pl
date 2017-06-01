@@ -38,11 +38,18 @@ my $sample_data_file = $working_dir . "All-Data-Summary-v5.tsv"; $assets{$sample
 my $lims_data_file = $working_dir . "LIMS_InstrumentDataInfo.tsv"; $assets{$lims_data_file} = "f";
 my $sample_legend_file = $working_dir . "Sample-Legend.tsv"; $assets{$sample_legend_file} = "f";
 my $alignment_yml_name = "unaligned_bam_to_bqsr.yml";
+my $somatic_yml_name = "detect_variants.yml";
 
 my $reference = "/gscmnt/gc2764/cad/HCC1395/arvados/refseq/GRCh38DH/GRCh38_full_analysis_set_plus_decoy_hla.fa"; $assets{$reference} = "f";
 my $dbsnp = "/gscmnt/gc2764/cad/HCC1395/arvados/refseq/GRCh38DH/Homo_sapiens_assembly38.dbsnp138.vcf.gz"; $assets{$dbsnp} = "f";
 my $known_indels = "/gscmnt/gc2764/cad/HCC1395/arvados/refseq/GRCh38DH/Homo_sapiens_assembly38.known_indels.vcf.gz"; $assets{$known_indels} = "f";
 my $mills = "/gscmnt/gc2764/cad/HCC1395/arvados/refseq/GRCh38DH/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz"; $assets{$mills} = "f";
+my $interval_list = "/gscmnt/gc2736/griffithlab_gms/Breast_cfDNA_Ademuyiwa/cwl_toil_runs/interval_lists/xgen-lockdown-exome-panel/xgen-lockdown-exome-panel.liftover.GRCh38.interval_list"; $assets{$interval_list} = "f";
+my $dbsnp_vcf = "/gscmnt/gc2764/cad/HCC1395/arvados/refseq/GRCh38DH/Homo_sapiens_assembly38.dbsnp138.vcf.gz"; $assets{$dbsnp_vcf} = "f";
+my $cosmic_vcf = "/gscmnt/gc2764/cad/HCC1395/arvados/refseq/GRCh38DH/Cosmic_v79.dictsorted.vcf.gz"; $assets{$cosmic_vcf} = "f";
+my $vep_cache_dir = "/gscmnt/gc2764/cad/ssiebert/toil_test/inputs/VEP_cache"; $assets{$vep_cache_dir} = "d";
+my $synonyms_file = "/gscmnt/gc2764/cad/HCC1395/arvados/refseq/GRCh38DH/chromAlias.ensembl.txt"; $assets{$synonyms_file} = "f";
+my $docm_vcf = "/gscmnt/gc2764/cad/tmooney/toil_test/arvados_trial/example_data/detect_variants/DoCM.hs37_011117_sanitized_sort_new_LiftOver_hg19ToHg38.vcf.gz"; $assets{$docm_vcf} = "f";
 
 my $align_cwl_exome = $base_dir . "/cancer-genomics-workflow/unaligned_bam_to_bqsr/workflow.cwl"; $assets{$align_cwl_exome} = "f";
 my $align_cwl_swift = $base_dir . "/cancer-genomics-workflow/unaligned_bam_to_bqsr/workflow_no_dup_marking.cwl"; $assets{$align_cwl_swift} = "f";
@@ -69,7 +76,6 @@ my $sample_data = &loadData('-data_file'=>$sample_data_file, '-assets'=>\%assets
 #Determine tumor/normal pairs for comparison
 my $pair_data = &determinePairs('-sample_data'=>$sample_data);
 
-print Dumper $pair_data;
 
 #Get library and flowcell info for each piece of instrument data
 #Need to create something like this for each instrument data input:
@@ -82,7 +88,7 @@ print Dumper $pair_data;
 #Create an output directory for each alignment job
 &createAlignDirs('-base_dir'=>$base_dir, '-alignment_dir'=>$alignment_dir, '-sample_data'=>$sample_data);
 
-#Create a YAML file for each alignemt job
+#Create a YAML file for each alignment job
 &createAlignYmls('-base'=>$alignment_dir, '-sample_data'=>$sample_data, '-yml_name'=>$alignment_yml_name,
                  '-reference'=>$reference, '-dbsnp'=>$dbsnp, '-known_indels'=>$known_indels, '-mills'=>$mills);
 
@@ -95,9 +101,12 @@ print Dumper $pair_data;
 
 #SOMATIC JOBS - each tumor/normal sample pair for only the samples with exome data
 #Create an output directory for each somatic job
-
+&createSomaticDirs('-base_dir'=>$base_dir, '-somatic_dir'=>$somatic_dir, '-pair_data'=>$pair_data);
 
 #Create a YAML file for each somatic job 
+&createSomaticYmls('-base'=>$somatic_dir, '-pair_data'=>$pair_data, '-yml_name'=>$somatic_yml_name,
+                   '-reference'=>$reference, '-interval_list'=>$interval_list, '-dbsnp_vcf'=>$dbsnp_vcf, '-cosmic_vcf'=>$cosmic_vcf,
+                   '-vep_cache_dir'=>$vep_cache_dir, '-synonyms_file'=>$synonyms_file, '-docm_vcf'=>$docm_vcf);
 
 #Create a Toil command for each somatic job
 
@@ -198,10 +207,10 @@ sub determinePairs{
     next if ($sample_common_name eq 'normal');
     if (defined($pairs{$i_name}{tumors})){
       my $tumors = $pairs{$i_name}{tumors};
-      $tumors->{$s} = 1;
+      $tumors->{$s}->{unique_label} = $s;
     }else{
       my %tumors;
-      $tumors{$s} = 1;
+      $tumors{$s}{unique_label} = $s;
       $pairs{$i_name}{tumors} = \%tumors;
     }
   }
@@ -253,6 +262,36 @@ sub createAlignDirs{
     unless (-e $dir2 && -d $dir2){
       print "\n$cmd2";
       system($cmd2);
+    }
+  }
+  return;
+}
+
+sub createSomaticDirs{
+  my %args = @_;
+  my $base_dir = $args{'-base_dir'};
+  my $somatic_dir = $args{'-somatic_dir'};
+  my $pair_data = $args{'-pair_data'};
+
+  foreach my $i (sort keys %{$pair_data}){
+    my $tumors = $pair_data->{$i}->{tumors};
+    foreach my $s (sort keys %{$tumors}){
+      my $dir1 = $somatic_dir . $s;
+      $tumors->{$s}->{dir}= $dir1;
+      my $dir2 = $base_dir . "/workDir/somatic/" . $s;
+      $tumors->{$s}->{work_dir} = $dir2;
+
+      my $cmd1 = "mkdir $dir1";
+      unless (-e $dir1 && -d $dir1){
+        print "\n$cmd1";
+        system($cmd1);
+      }
+    
+      my $cmd2 = "mkdir $dir2";
+      unless (-e $dir2 && -d $dir2){
+        print "\n$cmd2";
+        system($cmd2);
+      }
     }
   }
   return;
@@ -372,6 +411,36 @@ EOF
     open (YML, ">$yml_file") || die "\n\nCould not open out file: $yml_file\n\n";
     print YML $yml;
     close(YML);
+  }
+
+  return;
+}
+
+
+sub createSomaticYmls{
+  my %args = @_;
+  my $somatic_dir = $args{'-base'};
+  my $pair_data = $args{'-pair_data'};
+  my $yml_name = $args{'-yml_name'};
+  my $reference = $args{'-reference'};
+  my $interval_list = $args{'-interval_list'};
+  my $dbsnp_vcf = $args{'-dbsnp_vcf'};
+  my $cosmic_vcf = $args{'-cosmic_vcf'};
+  my $vep_cache_dir = $args{'-vep_cache_dir'};
+  my $synonyms_file = $args{'-synonyms_file'};
+  my $docm_vcf = $args{'-docm_vcf'};
+
+  foreach my $i (sort keys %{$pair_data}){
+    my $tumors = $pair_data->{$i}->{tumors};
+    foreach my $s (sort keys %{$tumors}){
+      my $dir= $tumors->{$s}->{dir};
+
+my $yml = <<EOF;
+
+
+
+EOF
+    }
   }
 
   return;
