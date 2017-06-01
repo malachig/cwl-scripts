@@ -49,7 +49,12 @@ my $align_cwl_swift = $base_dir . "/cancer-genomics-workflow/unaligned_bam_to_bq
 $assets{"$base_dir/workDir"} = "d";
 $assets{"$base_dir/jobStore"} = "d";
 
-#Use a job group to controls slots used by these jobs: (to check this job group: bjobs -g /mgtoil)
+#Use a job group to controls slots used by these jobs
+#To create a job group with 5 job limit: bgadd -L 5 /mgtoil
+#To check this job group: bjobs -g /mgtoil
+#To see details on this job group: bjgroup -s /mgtoil
+#To adjust job limit: bgmod -L 10 /mgtoil
+
 my $job_group = "/mgtoil";
 
 #OUTPUTS
@@ -59,8 +64,12 @@ my $somatic_bash_file = $working_dir . "somatic_toil_cmds.sh";
 my $somatic_session_file = $working_dir . "somatic_toil_session.txt";
 
 #Load data file with one line per piece of instrument data for this project
-#Organize by sample and tumor/normal pairs for comparison
 my $sample_data = &loadData('-data_file'=>$sample_data_file, '-assets'=>\%assets);
+
+#Determine tumor/normal pairs for comparison
+my $pair_data = &determinePairs('-sample_data'=>$sample_data);
+
+print Dumper $pair_data;
 
 #Get library and flowcell info for each piece of instrument data
 #Need to create something like this for each instrument data input:
@@ -68,7 +77,6 @@ my $sample_data = &loadData('-data_file'=>$sample_data_file, '-assets'=>\%assets
 #Some of this data was never imported into the GMS and will be imported from a LIMS spreadsheet (obtained by work order)
 #Some of this data is coming from the GMS and a GMS query will be used to obtain it
 &getIdInfo('-sample_data'=>$sample_data, '-lims_data_file'=>$lims_data_file, '-assets'=>\%assets);
-
 
 #ALIGNMENT JOBS - all samples
 #Create an output directory for each alignment job
@@ -110,10 +118,6 @@ foreach my $a (sort keys %assets){
 
 print "\n\n";
 exit;
-
-
-
-
 
 sub loadData{
   my %args = @_;
@@ -171,6 +175,40 @@ sub loadData{
   return (\%samples);
 }
 
+sub determinePairs{
+  my %args = @_;
+  my $sample_data = $args{'-sample_data'};
+
+  my %pairs;
+  foreach my $s (sort {$sample_data->{$a}->{order} <=> $sample_data->{$b}->{order}} keys %{$sample_data}){
+    my $i_name = $sample_data->{$s}->{individual_name};
+    my $data_type = $sample_data->{$s}->{data_type};
+    my $sample_common_name = $sample_data->{$s}->{sample_common_name};
+    next unless ($data_type eq 'Exome');
+    if ($sample_common_name eq 'normal'){
+      $pairs{$i_name}{normal} = $s;
+    }
+  }
+
+  foreach my $s (sort {$sample_data->{$a}->{order} <=> $sample_data->{$b}->{order}} keys %{$sample_data}){
+    my $i_name = $sample_data->{$s}->{individual_name};
+    my $data_type = $sample_data->{$s}->{data_type};
+    my $sample_common_name = $sample_data->{$s}->{sample_common_name};
+    next unless ($data_type eq 'Exome');
+    next if ($sample_common_name eq 'normal');
+    if (defined($pairs{$i_name}{tumors})){
+      my $tumors = $pairs{$i_name}{tumors};
+      $tumors->{$s} = 1;
+    }else{
+      my %tumors;
+      $tumors{$s} = 1;
+      $pairs{$i_name}{tumors} = \%tumors;
+    }
+  }
+
+  return(\%pairs);
+}
+
 sub printLegend{
   my %args = @_;
   my $file = $args{'-legend_file'};
@@ -197,20 +235,25 @@ sub createAlignDirs{
   foreach my $s (sort keys %{$sample_data}){
     my $unique_label = $sample_data->{$s}->{unique_label};
     my $dir1 = $alignment_dir . $unique_label;
+    $sample_data->{$s}->{dir} = $dir1;
+    my $dir2 = $base_dir . "/workDir/" . $unique_label;
+    $sample_data->{$s}->{work_dir} = $dir2;
+
+    #If the run is marked as complete, do nothing
+    my $complete_file = $dir1 . "/COMPLETE";
+    next if (-e $complete_file);
+
     my $cmd1 = "mkdir $dir1";
     unless (-e $dir1 && -d $dir1){
       print "\n$cmd1";
       system($cmd1);
     }
-    $sample_data->{$s}->{dir} = $dir1;
     
-    my $dir2 = $base_dir . "/workDir/" . $unique_label;
     my $cmd2 = "mkdir $dir2";
     unless (-e $dir2 && -d $dir2){
       print "\n$cmd2";
       system($cmd2);
     }
-    $sample_data->{$s}->{work_dir} = $dir2;
   }
   return;
 }
@@ -287,7 +330,14 @@ sub createAlignYmls{
   foreach my $s (sort keys %{$sample_data}){
     my $unique_label = $sample_data->{$s}->{unique_label};
     my $dir = $alignment_dir . $unique_label . "/";
+    
     my $yml_file = $dir . $yml_name;
+    $sample_data->{$s}->{yml_path} = $yml_file;
+
+    #If the run is marked as complete, do nothing
+    my $complete_file = $dir . "/COMPLETE";
+    next if (-e $complete_file);
+
     my $data = $sample_data->{$s}->{data};
     my @read_groups;
     my @bams;
@@ -322,7 +372,6 @@ EOF
     open (YML, ">$yml_file") || die "\n\nCould not open out file: $yml_file\n\n";
     print YML $yml;
     close(YML);
-    $sample_data->{$s}->{yml_path} = $yml_file;
   }
 
   return;
@@ -344,7 +393,9 @@ sub createAlignToils{
   foreach my $s (sort keys %{$sample_data}){
     my $align_yml = $sample_data->{$s}->{yml_path}; $assets->{$align_yml} = "f";
     my $dir = $sample_data->{$s}->{dir}; $assets->{$dir} = "d";
-    my $work_dir = $sample_data->{$s}->{work_dir}; $assets->{$work_dir} = "d";
+    my $complete_file = $dir . "/COMPLETE";
+    my $work_dir = $sample_data->{$s}->{work_dir}; 
+    $assets->{$work_dir} = "d" unless (-e $complete_file);
     my $align_cwl;
     if ($sample_data->{$s}->{data_type} eq 'Exome'){
       $align_cwl = $align_cwl_exome;
