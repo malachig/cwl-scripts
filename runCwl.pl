@@ -104,11 +104,12 @@ my $pair_data = &determinePairs('-sample_data'=>$sample_data);
 &createSomaticDirs('-base_dir'=>$base_dir, '-somatic_dir'=>$somatic_dir, '-pair_data'=>$pair_data);
 
 #Create a YAML file for each somatic job 
-&createSomaticYmls('-base'=>$somatic_dir, '-pair_data'=>$pair_data, '-yml_name'=>$somatic_yml_name,
+&createSomaticYmls('-base'=>$somatic_dir, '-alignment_dir'=>$alignment_dir, '-pair_data'=>$pair_data, '-yml_name'=>$somatic_yml_name,
                    '-reference'=>$reference, '-interval_list'=>$interval_list, '-dbsnp_vcf'=>$dbsnp_vcf, '-cosmic_vcf'=>$cosmic_vcf,
                    '-vep_cache_dir'=>$vep_cache_dir, '-synonyms_file'=>$synonyms_file, '-docm_vcf'=>$docm_vcf);
 
 #Create a Toil command for each somatic job
+
 
 #Print out a TSV file that summarizes results labels and storage locations for results
 &printLegend('-legend_file'=>$sample_legend_file, '-sample_data'=>$sample_data);
@@ -416,10 +417,10 @@ EOF
   return;
 }
 
-
 sub createSomaticYmls{
   my %args = @_;
   my $somatic_dir = $args{'-base'};
+  my $alignment_dir = $args{'-alignment_dir'};
   my $pair_data = $args{'-pair_data'};
   my $yml_name = $args{'-yml_name'};
   my $reference = $args{'-reference'};
@@ -431,15 +432,49 @@ sub createSomaticYmls{
   my $docm_vcf = $args{'-docm_vcf'};
 
   foreach my $i (sort keys %{$pair_data}){
+    my $normal_sample = $pair_data->{$i}->{normal};
     my $tumors = $pair_data->{$i}->{tumors};
-    foreach my $s (sort keys %{$tumors}){
-      my $dir= $tumors->{$s}->{dir};
-
+    foreach my $tumor_sample (sort keys %{$tumors}){
+      my $dir= $tumors->{$tumor_sample}->{dir};
+      my $yml_file = $dir . "/" . $yml_name;
+      $tumors->{$tumor_sample}->{yml_path} = $yml_file;
+      my $normal_cram = $alignment_dir . $normal_sample . "/final.cram";
+      my $tumor_cram = $alignment_dir . $tumor_sample . "/final.cram";
+  
 my $yml = <<EOF;
-
-
-
+\#\!/usr/bin/env cwl-runner
+reference:
+  class: File
+  path: $reference
+interval_list:
+  class: File
+  path: $interval_list
+dbsnp_vcf:
+  class: File
+  path: $dbsnp_vcf
+cosmic_vcf:
+  class: File
+  path: $cosmic_vcf
+normal_cram: 
+  class: File
+  path: $normal_cram
+tumor_cram:
+  class: File
+  path: $tumor_cram
+strelka_exome_mode: true
+mutect_scatter_count: 50
+vep_cache_dir: $vep_cache_dir
+synonyms_file:
+  class: File
+  path: $synonyms_file
+docm_vcf:
+  class: File
+  path: $docm_vcf
 EOF
+
+      open (YML, ">$yml_file") || die "\n\nCould not open out file: $yml_file\n\n";
+      print YML $yml;
+      close(YML);
     }
   }
 
