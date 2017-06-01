@@ -109,12 +109,11 @@ foreach my $j (sort {$a <=> $b} keys %jobs){
       system($complete_file_cmd);
 
       my $chmod_cmd = "chmod -w $outdir";
-      print "\n$chmod_cmd";
+      print "\n$chmod_cmd\n";
       system($chmod_cmd);
     }
 
   }
-  print "\n";
   print "$j\t$jobs{$j}{workdir}\t$overall_status\n";
 
 
