@@ -446,9 +446,7 @@ sub createSomaticYmls{
   
 my $yml = <<EOF;
 \#\!/usr/bin/env cwl-runner
-reference:
-  class: File
-  path: $reference
+reference: $reference
 interval_list:
   class: File
   path: $interval_list
